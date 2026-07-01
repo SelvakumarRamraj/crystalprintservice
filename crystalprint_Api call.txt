@@ -1,0 +1,532 @@
+Public Class PrintRequest
+    Public Property ReportName As String
+    Public Property PrinterName As String
+    Public Property UseDB As Boolean
+    Public Property ServerName As String
+    Public Property DatabaseName As String
+    Public Property DBUser As String
+    Public Property DBPassword As String
+    Public Property Parameters As Dictionary(Of String, Object)
+End Class
+
+2️⃣ VB.NET code to call MVC Print Service
+
+Imports System.Net
+Imports System.Text
+Imports Newtonsoft.Json
+
+Public Sub CallCrystalPrintService()
+
+    Dim req As New PrintRequest With {
+        .ReportName = "SalesReport",
+        .PrinterName = "HP LaserJet",
+        .UseDB = True,
+        .ServerName = "SQLSERVER",
+        .DatabaseName = "DBNAME",
+        .DBUser = "sa",
+        .DBPassword = "password",
+        .Parameters = New Dictionary(Of String, Object) From {
+            {"FromDate", "2025-01-01"},
+            {"ToDate", "2025-01-31"}
+        }
+    }
+
+    Dim url As String = "http://yourserver/Print/PrintReport"
+
+    Dim json As String = JsonConvert.SerializeObject(req)
+    Dim data As Byte() = Encoding.UTF8.GetBytes(json)
+
+    Dim request = CType(WebRequest.Create(url), HttpWebRequest)
+    request.Method = "POST"
+    request.ContentType = "application/json"
+    request.ContentLength = data.Length
+
+    Using stream = request.GetRequestStream()
+        stream.Write(data, 0, data.Length)
+    End Using
+
+    Dim response = CType(request.GetResponse(), HttpWebResponse)
+    Using reader As New IO.StreamReader(response.GetResponseStream())
+        Dim result = reader.ReadToEnd()
+        MessageBox.Show(result)
+    End Using
+
+End Sub
+
+**********************************
+Version 1 — Function returns Boolean (Success / Fail)
+Imports System.Net
+Imports System.Text
+Imports Newtonsoft.Json
+
+Public Function CallCrystalPrintService() As Boolean
+    Try
+        Dim req As New PrintRequest With {
+            .ReportName = "SalesReport",
+            .PrinterName = "HP LaserJet",
+            .UseDB = True,
+            .ServerName = "SQLSERVER",
+            .DatabaseName = "DBNAME",
+            .DBUser = "sa",
+            .DBPassword = "password",
+            .Parameters = New Dictionary(Of String, Object) From {
+                {"FromDate", "2025-01-01"},
+                {"ToDate", "2025-01-31"}
+            }
+        }
+
+        Dim url As String = "http://yourserver/Print/PrintReport"
+
+        Dim json As String = JsonConvert.SerializeObject(req)
+        Dim data As Byte() = Encoding.UTF8.GetBytes(json)
+
+        Dim request = CType(WebRequest.Create(url), HttpWebRequest)
+        request.Method = "POST"
+        request.ContentType = "application/json"
+        request.ContentLength = data.Length
+        request.Timeout = 30000
+
+        Using stream = request.GetRequestStream()
+            stream.Write(data, 0, data.Length)
+        End Using
+
+        Using response = CType(request.GetResponse(), HttpWebResponse)
+            Return response.StatusCode = HttpStatusCode.OK
+        End Using
+
+    Catch ex As Exception
+        ' Optional: log ex.Message
+        Return False
+    End Try
+End Function
+
+✅ Usage
+If CallCrystalPrintService() Then
+    MessageBox.Show("Printed successfully")
+Else
+    MessageBox.Show("Print failed")
+End If
+
+✅ Version 2 — Function returns Result object (Best practice)
+Result class
+Public Class PrintResult
+    Public Property Success As Boolean
+    Public Property Message As String
+End Class
+
+---------------
+Function (reads JSON response from MVC)
+Public Function CallCrystalPrintService() As PrintResult
+    Dim result As New PrintResult()
+
+    Try
+        Dim req As New PrintRequest With {
+            .ReportName = "SalesReport",
+            .PrinterName = "HP LaserJet",
+            .UseDB = True,
+            .ServerName = "SQLSERVER",
+            .DatabaseName = "DBNAME",
+            .DBUser = "sa",
+            .DBPassword = "password",
+            .Parameters = New Dictionary(Of String, Object) From {
+                {"FromDate", "2025-01-01"},
+                {"ToDate", "2025-01-31"}
+            }
+        }
+
+        Dim url As String = "http://yourserver/Print/PrintReport"
+
+        Dim json As String = JsonConvert.SerializeObject(req)
+        Dim data As Byte() = Encoding.UTF8.GetBytes(json)
+
+        Dim request = CType(WebRequest.Create(url), HttpWebRequest)
+        request.Method = "POST"
+        request.ContentType = "application/json"
+        request.ContentLength = data.Length
+        request.Timeout = 30000
+
+        Using stream = request.GetRequestStream()
+            stream.Write(data, 0, data.Length)
+        End Using
+
+        Using response = CType(request.GetResponse(), HttpWebResponse)
+            Using reader As New IO.StreamReader(response.GetResponseStream())
+                Dim jsonResponse = reader.ReadToEnd()
+                result = JsonConvert.DeserializeObject(Of PrintResult)(jsonResponse)
+            End Using
+        End Using
+
+    Catch ex As WebException
+        result.Success = False
+        result.Message = ex.Message
+    End Try
+
+    Return result
+End Function
+
+✅ Usage
+Dim res = CallCrystalPrintService()
+
+If res.Success Then
+    MessageBox.Show(res.Message)
+Else
+    MessageBox.Show("Error: " & res.Message)
+End If
+
+*********************************
+*************************************
+Imports System.Net
+Imports System.Text
+Imports Newtonsoft.Json
+
+Public Function CallCrystalPrintService(req As PrintRequest) As Boolean
+    Try
+        Dim url As String = "http://yourserver/Print/PrintReport"
+
+        Dim json As String = JsonConvert.SerializeObject(req)
+        Dim data As Byte() = Encoding.UTF8.GetBytes(json)
+
+        Dim request = CType(WebRequest.Create(url), HttpWebRequest)
+        request.Method = "POST"
+        request.ContentType = "application/json"
+        request.ContentLength = data.Length
+        request.Timeout = 30000
+
+        Using stream = request.GetRequestStream()
+            stream.Write(data, 0, data.Length)
+        End Using
+
+        Using response = CType(request.GetResponse(), HttpWebResponse)
+            Return response.StatusCode = HttpStatusCode.OK
+        End Using
+
+    Catch ex As Exception
+        ' Log ex.Message if needed
+        Return False
+    End Try
+End Function
+
+✅ 2️⃣ Create PrintRequest variable OUTSIDE and pass it
+
+Dim req As New PrintRequest With {
+    .ReportName = "SalesReport",
+    .PrinterName = "HP LaserJet",
+    .UseDB = True,
+    .ServerName = "SQLSERVER",
+    .DatabaseName = "DBNAME",
+    .DBUser = "sa",
+    .DBPassword = "password",
+    .Parameters = New Dictionary(Of String, Object) From {
+        {"FromDate", "2025-01-01"},
+        {"ToDate", "2025-01-31"}
+    }
+}
+
+Dim success As Boolean = CallCrystalPrintService(req)
+
+If success Then
+    MessageBox.Show("Printed successfully")
+Else
+    MessageBox.Show("Print failed")
+End If
+
+✅ 3️⃣ (Recommended) Return Status + Message instead of Boolean
+Result class
+
+Public Class PrintResult
+    Public Property Success As Boolean
+    Public Property Message As String
+End Class
+
+Function
+
+Public Function CallCrystalPrintService(req As PrintRequest) As PrintResult
+    Dim result As New PrintResult()
+
+    Try
+        Dim url As String = "http://yourserver/Print/PrintReport"
+
+        Dim json As String = JsonConvert.SerializeObject(req)
+        Dim data As Byte() = Encoding.UTF8.GetBytes(json)
+
+        Dim request = CType(WebRequest.Create(url), HttpWebRequest)
+        request.Method = "POST"
+        request.ContentType = "application/json"
+        request.ContentLength = data.Length
+        request.Timeout = 30000
+
+        Using stream = request.GetRequestStream()
+            stream.Write(data, 0, data.Length)
+        End Using
+
+        Using response = CType(request.GetResponse(), HttpWebResponse)
+            Using reader As New IO.StreamReader(response.GetResponseStream())
+                Dim jsonResponse = reader.ReadToEnd()
+                result = JsonConvert.DeserializeObject(Of PrintResult)(jsonResponse)
+            End Using
+        End Using
+
+    Catch ex As Exception
+        result.Success = False
+        result.Message = ex.Message
+    End Try
+
+    Return result
+End Function
+
+Usage
+
+Dim res = CallCrystalPrintService(req)
+
+If res.Success Then
+    MessageBox.Show(res.Message)
+Else
+    MessageBox.Show("Error: " & res.Message)
+End If
+
+************************************************ call crystalreport api cotroller
+Imports System.Web.Mvc
+Imports CrystalDecisions.CrystalReports.Engine
+Imports CrystalDecisions.Shared
+
+
+Namespace Controllers
+    Public Class PrintController
+        Inherits Controller
+
+        ' GET: Print
+        'Function Index() As ActionResult
+        '    Return View()
+        'End Function
+
+        '<HttpPost>
+        'Function PrintReport(<FromBody> req As PrintRequest) As ActionResult
+        '    Try
+        '        ' 1. Build report path
+        '        Dim rptPath As String = "D:\CrystalReports\" & req.ReportName & ".rpt"
+        '        If Not IO.File.Exists(rptPath) Then
+        '            Return Json(New With {.Status = "Error", .Message = "Report not found"})
+        '        End If
+
+        '        ' 2. Load report
+        '        Dim rpt As New ReportDocument()
+        '        rpt.Load(rptPath)
+
+        '        ' 3. Set database login
+        '        CrystalReportLogOn(rpt, req.ServerName, req.DatabaseName, req.DBUser, req.DBPassword)
+
+        '        ' 4. Apply parameters
+        '        For Each p In req.Parameters
+        '            rpt.SetParameterValue(p.Key, p.Value)
+        '        Next
+
+        '        ' 5. Set printer and print
+        '        rpt.PrintOptions.PrinterName = req.PrinterName
+        '        rpt.PrintToPrinter(1, False, 0, 0)
+
+        '        rpt.Close()
+        '        rpt.Dispose()
+
+        '        Return Json(New With {.Status = "Success", .Message = "Printed successfully"})
+        '    Catch ex As Exception
+        '        Return Json(New With {.Status = "Error", .Message = ex.Message})
+        '    End Try
+        'End Function
+
+        <HttpPost>
+        Function PrintReport(req As PrintRequest) As ActionResult
+            Try
+                ' 1. Report path (D: drive – Wine safe)
+                Dim rptPath As String = "D:\CrystalReports\" & req.ReportName & ".rpt"
+                If Not IO.File.Exists(rptPath) Then
+                    Return Json(New With {.Status = "Error", .Message = "Report not found"})
+                End If
+
+                ' 2. Load report
+                Dim rpt As New CrystalDecisions.CrystalReports.Engine.ReportDocument()
+                rpt.Load(rptPath)
+
+                ' 3. Set DB login (ONLY if required)
+                If req.UseDB Then
+                    CrystalReportLogOn(rpt, req.ServerName, req.DatabaseName, req.DBUser, req.DBPassword)
+                End If
+
+                ' 4. Apply parameters
+                If req.Parameters IsNot Nothing Then
+                    For Each p In req.Parameters
+                        rpt.SetParameterValue(p.Key, p.Value)
+                    Next
+                End If
+
+                ' 5. Print
+                rpt.PrintOptions.PrinterName = req.PrinterName
+                rpt.PrintToPrinter(1, False, 0, 0)
+
+                rpt.Close()
+                rpt.Dispose()
+
+                Return Json(New With {.Status = "Success", .Message = "Printed successfully"})
+
+            Catch ex As Exception
+                Return Json(New With {.Status = "Error", .Message = ex.Message})
+            End Try
+        End Function
+
+        Public Sub CrystalReportLogOn(ByVal reportParameters As ReportDocument, ByVal serverName As String, ByVal databaseName As String, ByVal userName As String, ByVal password As String)
+            Dim logOnInfo As TableLogOnInfo
+            Dim subRd As ReportDocument
+            Dim sects As Sections
+            Dim ros As ReportObjects
+            Dim sro As SubreportObject
+
+            For Each t As CrystalDecisions.CrystalReports.Engine.Table In reportParameters.Database.Tables
+                logOnInfo = t.LogOnInfo
+                logOnInfo.ConnectionInfo.ServerName = serverName
+                logOnInfo.ConnectionInfo.DatabaseName = databaseName
+                logOnInfo.ConnectionInfo.UserID = userName
+                logOnInfo.ConnectionInfo.Password = password
+                t.ApplyLogOnInfo(logOnInfo)
+            Next
+
+            sects = reportParameters.ReportDefinition.Sections
+            For Each sect As Section In sects
+                ros = sect.ReportObjects
+                For Each ro As ReportObject In ros
+                    If ro.Kind = ReportObjectKind.SubreportObject Then
+                        sro = DirectCast(ro, SubreportObject)
+                        subRd = sro.OpenSubreport(sro.SubreportName)
+                        For Each t As CrystalDecisions.CrystalReports.Engine.Table In subRd.Database.Tables
+                            logOnInfo = t.LogOnInfo
+                            logOnInfo.ConnectionInfo.ServerName = serverName
+                            logOnInfo.ConnectionInfo.DatabaseName = databaseName
+                            logOnInfo.ConnectionInfo.UserID = userName
+                            logOnInfo.ConnectionInfo.Password = password
+                            t.ApplyLogOnInfo(logOnInfo)
+                        Next
+                    End If
+                Next
+            Next
+        End Sub
+    End Class
+
+    '**json format
+    '     {
+    '  "ReportName": "SalesInvoice",
+    '  "PrinterName": "\\\\WINPC\\HP_LASER",
+    '  "UseDB": true,
+    '  "ServerName": "SQLSERVER",
+    '  "DatabaseName": "ERPDB",
+    '  "DBUser": "sa",
+    '  "DBPassword": "password",
+    '  "Parameters": {
+    '    "InvoiceNo": "INV1001"
+    '  }
+    '}
+
+
+    '     {
+    '  "ReportName": "SalesInvoice",
+    '  "PrinterName": "\\\\WINPC\\HP_LASER",
+    '  "UseDB": false,
+    '  "ServerName": "SQLSERVER",
+    '  "DatabaseName": "ERPDB",
+    '  "DBUser": "sa",
+    '  "DBPassword": "password",
+    '  "Parameters": {
+    '    "InvoiceNo": "INV1001"
+    '  }
+    '}
+End Namespace
+
+***********************model
+Public Class PrintRequest
+    Public Property ReportName As String
+    Public Property PrinterName As String
+
+    Public Property UseDB As Boolean
+    Public Property ServerName As String
+    Public Property DatabaseName As String
+    Public Property DBUser As String
+    Public Property DBPassword As String
+    Public Property Parameters As Dictionary(Of String, Object)
+End Class
+**************************************************
+****************************************************pdf file from crystal report
+<HttpPost>
+Function ViewReport(req As PrintRequest) As ActionResult
+    Try
+        Dim rptPath As String = "D:\CrystalReports\" & req.ReportName & ".rpt"
+        If Not IO.File.Exists(rptPath) Then
+            Return Json(New With {.Status = "Error", .Message = "Report not found"})
+        End If
+
+        Dim rpt As New ReportDocument()
+        rpt.Load(rptPath)
+
+        ' DB login
+        If req.UseDB Then
+            CrystalReportLogOn(rpt, req.ServerName, req.DatabaseName, req.DBUser, req.DBPassword)
+        End If
+
+        ' Parameters
+        If req.Parameters IsNot Nothing Then
+            For Each p In req.Parameters
+                rpt.SetParameterValue(p.Key, p.Value)
+            Next
+        End If
+
+        ' Export to PDF stream
+        Dim stream As IO.Stream =
+            rpt.ExportToStream(CrystalDecisions.Shared.ExportFormatType.PortableDocFormat)
+
+        rpt.Close()
+        rpt.Dispose()
+
+        stream.Seek(0, IO.SeekOrigin.Begin)
+
+        ' Return PDF to browser
+        Return File(stream, "application/pdf", req.ReportName & ".pdf")
+
+    Catch ex As Exception
+        Return Json(New With {.Status = "Error", .Message = ex.Message})
+    End Try
+End Function
+
+usage call
+--------------
+Dim url As String = "http://yourserver/Print/ViewReport"
+
+Process.Start(url)
+
+*********************** call
+Public Function ViewCrystalPDF(req As PrintRequest) As Boolean
+    Try
+        Dim url As String = "http://yourserver/Print/ViewReport"
+
+        Dim json As String = JsonConvert.SerializeObject(req)
+        Dim data As Byte() = Encoding.UTF8.GetBytes(json)
+
+        Dim request = CType(WebRequest.Create(url), HttpWebRequest)
+        request.Method = "POST"
+        request.ContentType = "application/json"
+        request.ContentLength = data.Length
+
+        Using stream = request.GetRequestStream()
+            stream.Write(data, 0, data.Length)
+        End Using
+
+        Dim response = CType(request.GetResponse(), HttpWebResponse)
+
+        ' Save PDF locally
+        Using fs As New IO.FileStream("D:\Temp\report.pdf", IO.FileMode.Create)
+            response.GetResponseStream().CopyTo(fs)
+        End Using
+
+        Process.Start("D:\Temp\report.pdf")
+        Return True
+
+    Catch ex As Exception
+        MessageBox.Show(ex.Message)
+        Return False
+    End Try
+End Function
