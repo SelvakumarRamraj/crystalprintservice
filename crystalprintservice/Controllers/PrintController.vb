@@ -239,7 +239,7 @@ Namespace Controllers
 
 
         <System.Web.Http.HttpPost>
-        Function PrintReportprev(req As PrintRequest) As HttpResponseMessage
+        Function PrintReportprevold(req As PrintRequest) As HttpResponseMessage
             Dim qrFile As String = ""
             Dim invno As String = ""
             Dim rpt As ReportDocument = Nothing
@@ -438,7 +438,7 @@ Namespace Controllers
         End Function
 
         <System.Web.Http.HttpPost>
-        Function PrintReport(req As PrintRequest) As HttpResponseMessage
+        Function PrintReportprev(req As PrintRequest) As HttpResponseMessage
 
             Dim qrFile As String = ""
             Dim invno As String = ""
@@ -473,7 +473,7 @@ Namespace Controllers
                 ' 2. Load report
                 rpt = New ReportDocument()
                 rpt.Load(rptPath)
-
+                rpt.Refresh()
 
 
                 ' 3. DB login
@@ -683,7 +683,407 @@ Namespace Controllers
             End Try
 
         End Function
+        <System.Web.Http.HttpPost>
+        Function PrintReport(req As PrintRequest) As HttpResponseMessage
 
+            Dim qrFile As String = ""
+            Dim invno As String = ""
+            Dim rpt As ReportDocument = Nothing
+
+            Try
+
+                '------------------------------------------------------------
+                ' 1. Validate Report Path
+                '------------------------------------------------------------
+                Dim basePath As String = ConfigurationManager.AppSettings("ReportPath")
+
+                If String.IsNullOrWhiteSpace(basePath) Then
+                    Throw New Exception("ReportPath missing in web.config")
+                End If
+
+                If String.IsNullOrWhiteSpace(req.ReportName) Then
+                    Return New HttpResponseMessage(HttpStatusCode.BadRequest) With {
+                .Content = New StringContent("ReportName missing")
+            }
+                End If
+
+                Dim safeReportName As String = Path.GetFileName(req.ReportName)
+                Dim rptPath As String = Path.Combine(basePath, safeReportName & ".rpt")
+
+                If Not File.Exists(rptPath) Then
+                    Return New HttpResponseMessage(HttpStatusCode.NotFound) With {
+                .Content = New StringContent("Report file not found.")
+            }
+                End If
+
+                '------------------------------------------------------------
+                ' 2. Load Crystal Report
+                '------------------------------------------------------------
+                rpt = New ReportDocument()
+
+                rpt.Load(rptPath)
+
+                'Always verify and refresh
+                ' rpt.VerifyDatabase()
+                'rpt.Refresh()
+
+                'Dim s As String = ""
+
+                'For Each pf As ParameterFieldDefinition In rpt.DataDefinition.ParameterFields
+                '    s &= pf.Name & vbCrLf
+                'Next
+
+                'System.IO.File.WriteAllText("D:\ReportParams.txt", s)
+
+
+
+
+
+                '------------------------------------------------------------
+                ' 3. Database Login
+                '------------------------------------------------------------
+                If req.UseDB Then
+
+                    req.ServerName = ConfigurationManager.AppSettings("Servername")
+                    req.DBUser = ConfigurationManager.AppSettings("dbuser")
+
+                    Dim dbUser As String = req.DBUser
+                    Dim dbPass As String = ""
+
+                    Try
+
+                        Dim encPass As String = ConfigurationManager.AppSettings("dbpassword")
+                        dbPass = CryptoHelper.Decrypt(encPass)
+
+                    Catch ex As Exception
+
+                        Return New HttpResponseMessage(HttpStatusCode.BadRequest) With {
+                    .Content = New StringContent("Invalid encrypted database credentials.")
+                }
+
+                    End Try
+
+                    'For Each tbl As CrystalDecisions.CrystalReports.Engine.Table In rpt.Database.Tables
+
+                    '    System.IO.File.AppendAllText("D:\CrystalLocation.txt",
+                    '        "Name      : " & tbl.Name & vbCrLf &
+                    '        "Location  : " & tbl.Location & vbCrLf &
+                    '        "Server    : " & tbl.LogOnInfo.ConnectionInfo.ServerName & vbCrLf &
+                    '         "Database  : " & tbl.LogOnInfo.ConnectionInfo.DatabaseName & vbCrLf &
+                    '        "User      : " & tbl.LogOnInfo.ConnectionInfo.UserID & vbCrLf &
+                    '        "------------------------" & vbCrLf)
+
+                    'Next
+
+
+                    CrystalReportLogOn(rpt, req.ServerName, req.DatabaseName, dbUser, dbPass)
+
+                    rpt.Refresh()
+
+                    'For Each tbl As CrystalDecisions.CrystalReports.Engine.Table In rpt.Database.Tables
+
+                    '    System.IO.File.AppendAllText(
+                    '        "D:\CrystalTables.txt",
+                    '        "Table : " & tbl.Name & vbCrLf &
+                    '        "Location : " & tbl.Location & vbCrLf &
+                    '        "------------------" & vbCrLf)
+
+                    'Next
+
+                End If
+
+                '------------------------------------------------------------
+                ' 4. Apply Report Parameters
+                '------------------------------------------------------------
+                If req.Parameters IsNot Nothing Then
+
+                    For Each p In req.Parameters
+
+                        Try
+
+                            rpt.SetParameterValue(p.Key, p.Value)
+
+                        Catch ex As Exception
+                            Throw New Exception("Parameter '" & p.Key & "' : " & ex.Message)
+
+                            'Ignore parameters that do not exist in report
+
+                        End Try
+
+                    Next
+
+                End If
+
+
+
+                'If req.Parameters IsNot Nothing Then
+                '    For Each p In req.Parameters
+
+                '        Dim pf As ParameterFieldDefinition = Nothing
+
+                '        Try
+                '            pf = rpt.DataDefinition.ParameterFields(p.Key)
+                '        Catch
+                '            pf = Nothing
+                '        End Try
+
+                '        If pf IsNot Nothing Then
+                '            pf.CurrentValues.Clear()
+
+                '            Dim dv As New ParameterDiscreteValue()
+                '            dv.Value = p.Value
+
+                '            pf.CurrentValues.Add(dv)
+                '            pf.ApplyCurrentValues(pf.CurrentValues)
+                '        End If
+
+                '    Next
+                'End If
+
+
+
+
+                'Refresh report after parameters
+                'rpt.Refresh()
+
+                '------------------------------------------------------------
+                ' 5. Generate QR Code (If Required)
+                '------------------------------------------------------------
+                If Not String.IsNullOrWhiteSpace(req.QRText) Then
+
+                    If req.Parameters Is Nothing OrElse Not req.Parameters.ContainsKey("Dockey@") Then
+
+                        Return New HttpResponseMessage(HttpStatusCode.BadRequest) With {
+                    .Content = New StringContent("Missing Dockey@ parameter.")
+                }
+
+                    End If
+
+                    invno = req.Parameters("Dockey@").ToString()
+
+                    Dim qrBitmap As Bitmap = GenerateQRCodeImage(req.QRText)
+
+                    qrFile = Path.Combine(
+                        ConfigurationManager.AppSettings("QRPath"),
+                        "qr_" & invno.Trim() & ".png")
+
+                    qrBitmap.Save(qrFile, Imaging.ImageFormat.Png)
+
+                    rpt.SetParameterValue("Qrpath", qrFile)
+
+                    qrBitmap.Dispose()
+
+                End If
+
+
+                'Dim log As New System.Text.StringBuilder()
+
+                'For Each pf As CrystalDecisions.CrystalReports.Engine.ParameterFieldDefinition In rpt.DataDefinition.ParameterFields
+
+                '    log.AppendLine("Parameter : " & pf.Name)
+
+                '    If pf.CurrentValues Is Nothing OrElse pf.CurrentValues.Count = 0 Then
+                '        log.AppendLine("Value : <EMPTY>")
+                '    Else
+                '        For Each v As CrystalDecisions.Shared.ParameterValue In pf.CurrentValues
+                '            Dim dv = TryCast(v, CrystalDecisions.Shared.ParameterDiscreteValue)
+                '            If dv IsNot Nothing Then
+                '                log.AppendLine("Value : " & dv.Value.ToString())
+                '            End If
+                '        Next
+                '    End If
+
+                '    log.AppendLine("--------------------------------")
+
+                'Next
+
+                'System.IO.File.WriteAllText("D:\CrystalParameterValues.txt", log.ToString())
+
+
+                'Refresh once again before export
+                'rpt.Refresh()
+
+                '=========================
+                'PART 2 STARTS FROM HERE
+                '=========================
+
+                '------------------------------------------------------------
+                ' 6. Export Report to PDF (Memory)
+                '------------------------------------------------------------
+                Dim stream As System.IO.Stream = Nothing
+                Dim memoryStream As MemoryStream = Nothing
+
+                Try
+
+                    stream = rpt.ExportToStream(ExportFormatType.PortableDocFormat)
+
+                    memoryStream = New MemoryStream()
+
+                    stream.CopyTo(memoryStream)
+
+                    Dim pdfBytes As Byte() = memoryStream.ToArray()
+
+                    '------------------------------------------------------------
+                    ' Build Response
+                    '------------------------------------------------------------
+                    Dim response As New HttpResponseMessage(HttpStatusCode.OK)
+
+                    response.Content = New ByteArrayContent(pdfBytes)
+                    response.Content.Headers.ContentType =
+                New Headers.MediaTypeHeaderValue("application/pdf")
+
+                    response.Headers.CacheControl =
+                New Headers.CacheControlHeaderValue() With {
+                    .NoCache = True,
+                    .NoStore = True,
+                    .MustRevalidate = True
+                }
+
+                    response.Content.Headers.Expires = DateTimeOffset.UtcNow.AddSeconds(-1)
+
+                    Dim fileName As String = req.ReportName
+
+                    If Not String.IsNullOrWhiteSpace(invno) Then
+                        fileName &= "-" & invno
+                    End If
+
+                    fileName &= ".pdf"
+
+                    If Not String.IsNullOrWhiteSpace(req.PrinterName) Then
+
+
+                        'rpt.PrintOptions.PrinterName = req.PrinterName
+
+                        'rpt.PrintToPrinter(1, False, 0, 0)
+
+                        'Return New HttpResponseMessage(HttpStatusCode.OK) With {
+                        '.Content = New StringContent("Printed Successfully")
+                        ' }
+
+
+
+
+                        response.Content.Headers.ContentDisposition =
+                    New Headers.ContentDispositionHeaderValue("inline") With {
+                        .FileName = fileName
+                    }
+
+                    Else
+
+                        If req.DigitalSign Then
+
+                            response.Content.Headers.ContentDisposition =
+                        New Headers.ContentDispositionHeaderValue("attachment") With {
+                            .FileName = fileName
+                        }
+
+                        Else
+
+                            response.Content.Headers.ContentDisposition =
+                        New Headers.ContentDispositionHeaderValue("inline") With {
+                            .FileName = fileName
+                        }
+
+                        End If
+
+                    End If
+
+                    Return response
+
+                Finally
+
+                    '------------------------------------------------------------
+                    ' Close Streams
+                    '------------------------------------------------------------
+                    If memoryStream IsNot Nothing Then
+                        memoryStream.Close()
+                        memoryStream.Dispose()
+                    End If
+
+                    If stream IsNot Nothing Then
+                        stream.Close()
+                        stream.Dispose()
+                    End If
+
+                    '------------------------------------------------------------
+                    ' Delete Temporary QR File
+                    '------------------------------------------------------------
+                    If Not String.IsNullOrWhiteSpace(qrFile) AndAlso
+               File.Exists(qrFile) Then
+
+                        Try
+                            File.Delete(qrFile)
+                        Catch
+                            ' Ignore delete failure
+                        End Try
+
+                    End If
+
+                    '------------------------------------------------------------
+                    ' Crystal Cleanup
+                    '------------------------------------------------------------
+                    If rpt IsNot Nothing Then
+
+                        Try
+                            rpt.Close()
+                            rpt.Dispose()
+                        Catch
+                        End Try
+
+                    End If
+
+                    GC.Collect()
+                    GC.WaitForPendingFinalizers()
+                    GC.Collect()
+
+                End Try
+
+            Catch ex As Exception
+
+                If rpt IsNot Nothing Then
+
+                    Try
+                        rpt.Close()
+                        rpt.Dispose()
+                    Catch
+                    End Try
+
+                End If
+
+                Try
+
+                    If Not String.IsNullOrWhiteSpace(qrFile) AndAlso
+               File.Exists(qrFile) Then
+
+                        File.Delete(qrFile)
+
+                    End If
+
+                Catch
+                End Try
+
+                Dim logFile As String = "D:\api_error.txt"
+
+                File.AppendAllText(
+            logFile,
+            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") &
+            Environment.NewLine &
+            ex.ToString() &
+            Environment.NewLine &
+            "--------------------------------------------------------" &
+            Environment.NewLine)
+
+                GC.Collect()
+                GC.WaitForPendingFinalizers()
+                GC.Collect()
+
+                Return New HttpResponseMessage(HttpStatusCode.InternalServerError) With {
+            .Content = New StringContent(ex.ToString())
+        }
+
+            End Try
+
+        End Function
 
         Public Sub CrystalReportLogOnold(ByVal reportParameters As ReportDocument, ByVal serverName As String, ByVal databaseName As String, ByVal userName As String, ByVal password As String)
             Dim logOnInfo As TableLogOnInfo
@@ -731,18 +1131,43 @@ Namespace Controllers
             ci.Password = password
             ci.IntegratedSecurity = False   ' VERY IMPORTANT
 
+
+
             ' -------- MAIN REPORT TABLES --------
             For Each tbl As CrystalDecisions.CrystalReports.Engine.Table In rpt.Database.Tables
                 Dim logonInfo As TableLogOnInfo = tbl.LogOnInfo
                 logonInfo.ConnectionInfo = ci
                 tbl.ApplyLogOnInfo(logonInfo)
 
-                Dim parts = tbl.Location.Split("."c)
-                Dim tableName = parts(parts.Length - 1)
+                'Dim parts = tbl.Location.Split("."c)
+                'Dim tableName = parts(parts.Length - 1)
+                '' MUST reset location
+                ''tbl.Location = databaseName & ".dbo." & tbl.Name
+                'tbl.Location = databaseName & ".dbo." & tableName
+
+                'new
+                'Dim tableName As String = tbl.Location
+
+                'If tableName.Contains(".") Then
+                '    tableName = tableName.Split("."c).Last()
+                'End If
+                'tbl.Location = databaseName & ".dbo." & tableName
+
+                If tbl.TestConnectivity() Then
+
+                    If Not tbl.Location.Trim().StartsWith("Command", StringComparison.OrdinalIgnoreCase) Then
+
+                        'If this is a normal table
+                        If tbl.Location.Contains(".") Then
+                            Dim tableName As String = tbl.Location.Split("."c).Last()
+                            tbl.Location = databaseName & ".dbo." & tableName
+                        End If
+
+                    End If
+
+                End If
 
 
-                ' MUST reset location
-                tbl.Location = databaseName & ".dbo." & tbl.Name
             Next
 
             ' -------- SUBREPORTS --------
@@ -757,11 +1182,36 @@ Namespace Controllers
                             logonInfo.ConnectionInfo = ci
                             tbl.ApplyLogOnInfo(logonInfo)
 
-                            Dim parts = tbl.Location.Split("."c)
-                            Dim tableName = parts(parts.Length - 1)
+                            'Dim parts = tbl.Location.Split("."c)
+                            'Dim tableName = parts(parts.Length - 1)
+                            ''tbl.Location = databaseName & ".dbo." & tbl.Name
+                            'tbl.Location = databaseName & ".dbo." & tableName
+                            'tbl.Location = tbl.Location.Substring(tbl.Location.LastIndexOf(".") + 1)
+
+                            'new
+                            'Dim tableName As String = tbl.Location
+
+                            'If tableName.Contains(".") Then
+                            '    tableName = tableName.Split("."c).Last()
+                            'End If
+                            'tbl.Location = databaseName & ".dbo." & tableName
 
 
-                            tbl.Location = databaseName & ".dbo." & tbl.Name
+                            If tbl.TestConnectivity() Then
+
+                                If Not tbl.Location.Trim().StartsWith("Command", StringComparison.OrdinalIgnoreCase) Then
+
+                                    'If this is a normal table
+                                    If tbl.Location.Contains(".") Then
+                                        Dim tableName As String = tbl.Location.Split("."c).Last()
+                                        tbl.Location = databaseName & ".dbo." & tableName
+                                    End If
+
+                                End If
+
+                            End If
+
+
                         Next
                     End If
                 Next
@@ -769,7 +1219,44 @@ Namespace Controllers
 
             ' -------- FORCE LOGON --------
             rpt.SetDatabaseLogon(userName, password, serverName, databaseName)
+
             'rpt.VerifyDatabase()
+        End Sub
+
+
+
+        Private Sub ApplyConnection(tables As Tables,
+                            ci As ConnectionInfo,
+                            databaseName As String)
+
+            For Each tbl As CrystalDecisions.CrystalReports.Engine.Table In tables
+
+                Dim logonInfo As TableLogOnInfo = tbl.LogOnInfo
+                logonInfo.ConnectionInfo = ci
+                tbl.ApplyLogOnInfo(logonInfo)
+
+                Dim loc As String = tbl.Location.ToLower()
+
+                'Don't change location for Stored Procedures or Commands
+                If loc.Contains("command") _
+                        OrElse loc.Contains("procedure") _
+                        OrElse tbl.Name.StartsWith("@") Then
+
+                    Continue For
+
+                End If
+
+                'Change location only for normal tables/views
+                If tbl.Location.Contains(".") Then
+
+                    Dim tableName As String = tbl.Location.Split("."c).Last()
+
+                    tbl.Location = databaseName & ".dbo." & tableName
+
+                End If
+
+            Next
+
         End Sub
 
 
